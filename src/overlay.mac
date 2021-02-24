@@ -1,0 +1,325 @@
+; vim: set ft=asm6502-2 ts=8 et:
+
+;---------------------------------------------------------------------------
+; Variables du module
+;---------------------------------------------------------------------------
+.scope OVL_OPTIONS
+        use_scope .set $ff
+        use_fn_table .set $00
+        current_ovl .set $00
+.endscope
+
+
+;---------------------------------------------------------------------------
+; Déclaration d'un overlay
+;---------------------------------------------------------------------------
+.macro start_overlay seg, id
+        .pushseg
+
+        .if .match(seg, 0)
+                .segment .sprintf("OVERLAY%d", seg)
+                OVL_OPTIONS::current_ovl .set seg
+
+                .out .sprintf("OVERLAY%d", seg)
+
+        .else
+                .segment seg
+                OVL_OPTIONS::current_ovl .set .strat(seg, .strlen(seg)-1)-48
+
+                .out seg
+        .endif
+
+
+        .pushseg
+                .segment .sprintf("OVL%d_HDR", OVL_OPTIONS::current_ovl)
+
+                ; Signature
+                ; .byte "OVL"
+
+                ; Offset vers la table des fonctions (compter à partir du début du fichier)
+                ;.if OVL_OPTIONS::use_fn_table
+                ;        .byte .strlen(id)+5
+                ;.else
+                ;        .byte .strlen(id)+4
+                ;.endif
+
+                ; Nombre de pages maximum du fichier
+                ; .byte >__OVERLAY_SIZE__
+
+                ; Adresse de chargement
+                ; .addr __OVERLAY_START__
+
+                .asciiz id
+
+                .if OVL_OPTIONS::use_fn_table
+                        .byte OVL_OPTIONS::use_fn_table
+
+                        ; TODO: ajouter le nombre de fonctions dans la table
+                .endif
+        .popseg
+
+        .if OVL_OPTIONS::use_scope
+                .if .match(seg, 0)
+                        .scope .ident(.sprintf("OVL%d", seg))
+                .else
+                        .scope .ident( .sprintf("OVL%c", .strat(seg, .strlen(seg)-1)))
+                .endif
+        .endif
+
+        .out .sprintf("Switch to overlay number: %d", OVL_OPTIONS::current_ovl)
+.endmacro
+
+
+;---------------------------------------------------------------------------
+; Fin d'un overlay
+;---------------------------------------------------------------------------
+.macro end_overlay
+
+        .ifdef ovl_nb_functions
+                .out .sprintf("Public: %d", ovl_nb_functions)
+        .endif
+
+        .if OVL_OPTIONS::use_scope
+                .endscope
+        .endif
+
+        .popseg
+.endmacro
+
+
+;----------------------------------------------------------------------
+; Déclaration d'une fonction publique
+;----------------------------------------------------------------------
+.macro ovl_public function
+
+        .if OVL_OPTIONS::use_fn_table
+                .pushseg
+                .segment .sprintf("OVL%d_HDR", OVL_OPTIONS::current_ovl)
+
+                .if OVL_OPTIONS::use_fn_table = 2
+                        .addr function
+
+                .elseif OVL_OPTIONS::use_fn_table = 3
+                        jmp function
+
+                .else
+                        .warning "OVL_OPTIONS::use_fn_table not in [0,2,3], default to 0"
+                .endif
+
+                .popseg
+        .endif
+
+        .ifndef ovl_nb_functions
+                ovl_nb_functions .set 1
+        .else
+                ovl_nb_functions .set ovl_nb_functions + 1
+        .endif
+
+        .proc function
+.endmacro
+
+;----------------------------------------------------------------------
+; Fin de la déclaration
+;----------------------------------------------------------------------
+.macro ovl_public_end
+        .endproc
+.endmacro
+
+
+;======================================================================
+;
+;======================================================================
+
+;---------------------------------------------------------------------------
+; Macro pour l'appel d'une fonction d'un overlay avec chargement de
+; l'overlay si nécessaire.
+;---------------------------------------------------------------------------
+; Syntax: jsr_ovl OVL1->fn1
+;         jsr_ovl OVL1:fn1
+;         jsr_ovl OVL1::fn1
+;
+; Modifier l'appel pour utiliser un index dans la table des fonctions de l'overlay?
+; jsr_ovl ovl_id, index
+;       => jsr __OVERLAYSTART__ + (index*3)
+
+.macro jsr_ovl function
+        .local ptr, fn
+
+        .if .tcount({function}) = 3
+                .if .match(.mid(1, 1, {function}), :)
+                        ptr = .ident(.sprintf("%s_NAME", .string(.left(1, {function}))))
+                        ;fn = .ident(.string(.right(1, {function})))
+
+                        jsr ovl_saveregs
+
+                        lda #<ptr
+                        ldy #>ptr
+                        jsr ovl_load
+                        bcs error
+
+                        jsr ovl_restoreregs
+
+                        ;jsr fn
+                        ;jsr .right(1, {function})
+                        _jsr_ovl function
+
+                .elseif .match(.mid(1, 1, {function}), ::)
+                        ptr = .ident(.sprintf("%s_NAME", .string(.left(1, {function}))))
+
+                        jsr ovl_saveregs
+
+                        lda #<ptr
+                        ldy #>ptr
+                        jsr ovl_load
+                        bcs error
+
+                        jsr ovl_restoreregs
+
+                        ;jsr function
+                        _jsr_ovl function
+                .else
+                        .error "jsr_ovl: syntax error"
+                .endif
+
+        .else
+                .if .tcount({function}) = 4
+                        .if .match(.mid(1, 2, {function}), ->)
+                                ptr = .ident(.sprintf("%s_NAME", .string(.left(1, {function}))))
+                                ;fn = .ident(.string(.right(1, {function})))
+
+                                jsr ovl_saveregs
+
+                                lda #<ptr
+                                ldy #>ptr
+                                jsr ovl_load
+                                bcs error
+
+                                jsr ovl_restoreregs
+
+                                ;jsr fn
+                                ;jsr .right(1, {function})
+                                _jsr_ovl function
+                        .else
+                                .error "jsr_ovl: syntax error"
+                        .endif
+                .else
+                        ; virtual OVL1fn1
+                        .error "jsr_ovl: syntax error"
+                .endif
+        .endif
+.endmacro
+
+
+;---------------------------------------------------------------------------
+; Macro pour l'appel d'une fonction d'un overlay SANS chargement de
+; l'overlay (suppose que le bon overlay est déjà en mémoire)
+;---------------------------------------------------------------------------
+.macro _jsr_ovl function
+        .if .tcount({function}) = 3
+                .if .match(.mid(1, 1, {function}), :)
+                        .if .match(.right(1, function), 0)
+                                .out "numérique"
+                                jsr __OVERLAY_START__ + (.right(1, function)*3)
+                        .else
+                                .ifdef .right(1, function)
+                                        .out "défini"
+
+                                        ; Si on utilise une table de fonctions
+                                        .if OVL_OPTIONS::use_fn_table
+                                                jsr __OVERLAY_START__ + (.right(1, function)*3)
+                                        .else
+                                                ; Sinon
+                                                jsr .right(1, function)
+                                        .endif
+                                .else
+                                        .out "non défini"
+                                .endif
+                        .endif
+
+                        ; On ne peut pas avoir un label avec cette syntaxe
+                        ;.ifdef function
+                        ;        .out "function defini"
+                        ;.else
+                        ;        .out "function non defini"
+                        ;.endif
+
+                .elseif .match(.mid(1, 1, {function}), ::)
+                        .if .match(.right(1, function), 0)
+                                .out "numérique"
+                                jsr __OVERLAY_START__ + (.right(1, function)*3)
+                        .else
+
+                                .ifdef .right(1, function)
+                                        .out "défini"
+
+                                        ; Si on utilise une table de fonctions
+                                        .if OVL_OPTIONS::use_fn_table
+                                                jsr __OVERLAY_START__ + (.right(1, function)*3)
+                                        .else
+                                                ; Sinon
+                                                jsr .right(1, function)
+                                        .endif
+                                .else
+                                        .ifdef function
+                                                .out "fonction definie"
+                                                jsr function
+                                        .else
+                                                .out "non defini"
+                                        .endif
+                                .endif
+
+;                                        .idef function
+;                                                .out "fonction definie"
+;                                                jsr function
+;                                        .else
+;                                                .ifdef .right(1, function)
+;                                                        .out "defini"
+;
+;                                                        ; Si on utilise une table de fonctions
+;                                                        .if OVL_OPTIONS::use_fn_table
+;                                                                jsr __OVERLAY_START__ + (.right(1, function)*3)
+;                                                        .else
+;                                                                ; Sinon
+;                                                                jsr .right(1, function)
+;                                                        .endif
+;                                                .else
+;                                                        .out "non defini"
+;                                                .endif
+;                                        .endif
+;
+                        .endif
+                .else
+                        .out "Erreur syntaxe: ':', '::' attendu"
+                .endif
+
+        .else
+                .if .tcount({function}) = 4
+                        .if .match(.mid(1, 2, {function}), ->)
+                                ; on revient au cas OVL:FN
+                                .if .match(.right(1, function), 0)
+                                        .out "numérique"
+                                        jsr __OVERLAY_START__ + (.right(1, function)*3)
+                                .else
+                                        .ifdef .right(1, function)
+                                                .out "défini"
+
+                                                ; Si on utilise une table de fonctions
+                                                .if OVL_OPTIONS::use_fn_table
+                                                        jsr __OVERLAY_START__ + (.right(1, function)*3)
+                                                .else
+                                                        ; Sinon
+                                                        jsr .right(1, function)
+                                                .endif
+                                        .else
+                                                .out "non défini"
+                                        .endif
+                                .endif
+                        .else
+                                .out "Erreur syntaxe: '->' attendu"
+                        .endif
+                .else
+                        .out "Erreur syntaxe: ':', '::', '->' attendu"
+                .endif
+        .endif
+.endmacro
+
