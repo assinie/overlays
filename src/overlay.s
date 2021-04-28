@@ -105,8 +105,8 @@ sopt := sopt1
 	max_path := KERNEL_MAX_PATH_LENGTH
         overlay_ptr := address
 
-XGETCWD = $48
-XPUTCWD = $49
+;XGETCWD = $48
+;XPUTCWD = $49
 
 ;----------------------------------------------------------------------
 ;				Page Zéro
@@ -119,9 +119,11 @@ XPUTCWD = $49
 
 ;	unsigned short offset		; Offset pour les liens
 
-        unsigned char aovl
-        unsigned char xovl
-        unsigned char yovl
+;        unsigned char aovl
+;        unsigned char xovl
+;        unsigned char yovl
+;        unsigned char povl
+
 ;----------------------------------------------------------------------
 ;				Variables
 ;----------------------------------------------------------------------
@@ -135,6 +137,11 @@ XPUTCWD = $49
 ;----------------------------------------------------------------------
 .segment "BSS"
         unsigned char cwd[max_path]
+
+        unsigned char aovl
+        unsigned char xovl
+        unsigned char yovl
+        unsigned char povl
 
 ;----------------------------------------------------------------------
 ; Variables et buffers
@@ -268,42 +275,27 @@ test OVL1::ovl1
 ;----------------------------------------------------------------------
 ;
 ; Entrée:
-;
+;       -
 ; Sortie:
-;
+;       -
 ; Variables:
 ;       Modifiées:
-;               -
+;               povl
+;               aovl
+;               xovl
+;               yovl
 ;       Utilisées:
 ;               -
 ; Sous-routines:
 ;       -
 ;----------------------------------------------------------------------
 .proc ovl_saveregs
+        php
         sta aovl
         stx xovl
         sty yovl
-        rts
-.endproc
-
-
-;----------------------------------------------------------------------
-;
-; Entrée:
-;
-; Sortie:
-;
-; Variables:
-;       Modifiées:
-;               -
-;       Utilisées:
-;               -
-; Sous-routines:
-;       -
-;----------------------------------------------------------------------
-.proc ovl_restoreregs
-        ldy yovl
-        ldx xovl
+        pla
+        sta povl
         lda aovl
         rts
 .endproc
@@ -312,16 +304,55 @@ test OVL1::ovl1
 ;----------------------------------------------------------------------
 ;
 ; Entrée:
-;
+;       -
 ; Sortie:
-;
+;       A,X,Y,P:Modifiés
 ; Variables:
 ;       Modifiées:
 ;               -
 ;       Utilisées:
-;               -
+;               povl
+;               aovl
+;               xovl
+;               yovl
 ; Sous-routines:
 ;       -
+;----------------------------------------------------------------------
+.proc ovl_restoreregs
+        ldy yovl
+        ldx xovl
+        lda povl
+        pha
+        lda aovl
+        plp
+        rts
+.endproc
+
+
+;----------------------------------------------------------------------
+;
+; Entrée:
+;       A,Y: pointeur vers le nom de l'overlay
+;
+; Sortie:
+;       A: code erreur
+;       Y: modifié
+;       C: 0-> Ok, 1->erreur
+;
+; Variables:
+;       Modifiées:
+;               overlay_ptr
+;               fp
+;
+;       Utilisées:
+;               -
+; Sous-routines:
+;       ovl_checkname
+;       opendir_overlay
+;       closedir_overlay
+;       fopen
+;       fread
+;       fclose
 ;----------------------------------------------------------------------
 .proc ovl_load
         sta overlay_ptr
@@ -341,9 +372,9 @@ test OVL1::ovl1
 	fopen (overlay_ptr), O_RDONLY
         jsr closedir_overlay
 	sta fp
-	sty fp+1
+	stx fp+1
 
-	ora fp+1
+	eor fp+1
 	beq errFopen
 
 	; Lecture du magic word
@@ -389,12 +420,14 @@ test OVL1::ovl1
 ; Entrée:
 ;
 ; Sortie:
+;       A,Y: Modifiés
+;       C: 0->Ok, 1->Erreur
 ;
 ; Variables:
 ;       Modifiées:
-;               -
+;               dskname
 ;       Utilisées:
-;               -
+;               overlay_ptr
 ; Sous-routines:
 ;       -
 ;----------------------------------------------------------------------
@@ -404,7 +437,9 @@ test OVL1::ovl1
         iny
         ; beq error
         lda (overlay_ptr),y
+
         ; pour les messages d'erreurs
+        ; /!\ faire la copie dans une autre procédure sinon le nom sera incomplet en cas d'erreur
         sta dskname,y
 
         cmp __OVERLAY_START__,y
@@ -425,14 +460,18 @@ test OVL1::ovl1
 ; Entrée:
 ;
 ; Sortie:
+;       A,Y: Modifiés
 ;
 ; Variables:
 ;       Modifiées:
-;               -
+;               RESB
+;               cwd
 ;       Utilisées:
-;               -
+;               overlay_path
+;
 ; Sous-routines:
-;       -
+;       XGETCWD
+;       XPUTCWD
 ;----------------------------------------------------------------------
 .proc opendir_overlay
         ; Sauvegarde le chemin actuel
@@ -457,16 +496,17 @@ test OVL1::ovl1
 ;----------------------------------------------------------------------
 ;
 ; Entrée:
-;
+;       -
 ; Sortie:
+;       A,Y: Inchangés
 ;
 ; Variables:
 ;       Modifiées:
 ;               -
 ;       Utilisées:
-;               -
+;               cwd
 ; Sous-routines:
-;       -
+;       XPUTCWD
 ;----------------------------------------------------------------------
 .proc closedir_overlay
         pha
@@ -516,9 +556,9 @@ test OVL1::ovl1
 	fopen dskname, O_RDONLY
         jsr closedir_overlay
 	sta fp
-	sty fp+1
+	stx fp+1
 
-	ora fp+1
+	eor fp+1
 	beq errFopen
 
 	; Lecture du magic word

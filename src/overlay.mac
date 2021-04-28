@@ -111,6 +111,7 @@
 
         .ifndef ovl_nb_functions
                 ovl_nb_functions .set 1
+
         .else
                 ovl_nb_functions .set ovl_nb_functions + 1
         .endif
@@ -177,6 +178,7 @@
 
                         ;jsr function
                         _jsr_ovl function
+
                 .else
                         .error "jsr_ovl: syntax error"
                 .endif
@@ -199,9 +201,11 @@
                                 ;jsr fn
                                 ;jsr .right(1, {function})
                                 _jsr_ovl function
+
                         .else
                                 .error "jsr_ovl: syntax error"
                         .endif
+
                 .else
                         ; virtual OVL1fn1
                         .error "jsr_ovl: syntax error"
@@ -220,20 +224,21 @@
                         .if .match(.right(1, function), 0)
                                 .out "numérique"
                                 jsr __OVERLAY_START__ + (.right(1, function)*3)
-                        .else
-                                .ifdef .right(1, function)
-                                        .out "défini"
 
-                                        ; Si on utilise une table de fonctions
-                                        .if OVL_OPTIONS::use_fn_table
-                                                jsr __OVERLAY_START__ + (.right(1, function)*3)
-                                        .else
-                                                ; Sinon
-                                                jsr .right(1, function)
-                                        .endif
+                        .elseif .defined( .right(1, function) )
+                                .out "défini"
+
+                                ; Si on utilise une table de fonctions
+                                .if OVL_OPTIONS::use_fn_table
+                                        jsr __OVERLAY_START__ + (.right(1, function)*3)
+
                                 .else
-                                        .out "non défini"
+                                        ; Sinon
+                                        jsr .right(1, function)
                                 .endif
+
+                        .else
+                                .out "non défini"
                         .endif
 
                         ; On ne peut pas avoir un label avec cette syntaxe
@@ -247,47 +252,47 @@
                         .if .match(.right(1, function), 0)
                                 .out "numérique"
                                 jsr __OVERLAY_START__ + (.right(1, function)*3)
-                        .else
 
-                                .ifdef .right(1, function)
-                                        .out "défini"
+                        .elseif .defined( .right(1, function) )
+                                .out "défini"
 
-                                        ; Si on utilise une table de fonctions
-                                        .if OVL_OPTIONS::use_fn_table
-                                                jsr __OVERLAY_START__ + (.right(1, function)*3)
-                                        .else
-                                                ; Sinon
-                                                jsr .right(1, function)
-                                        .endif
+                                ; Si on utilise une table de fonctions
+                                .if OVL_OPTIONS::use_fn_table
+                                        jsr __OVERLAY_START__ + (.right(1, function)*3)
+
                                 .else
-                                        .ifdef function
-                                                .out "fonction definie"
-                                                jsr function
-                                        .else
-                                                .out "non defini"
-                                        .endif
+                                        ; Sinon
+                                        jsr .right(1, function)
                                 .endif
 
-;                                        .idef function
-;                                                .out "fonction definie"
-;                                                jsr function
-;                                        .else
-;                                                .ifdef .right(1, function)
-;                                                        .out "defini"
-;
-;                                                        ; Si on utilise une table de fonctions
-;                                                        .if OVL_OPTIONS::use_fn_table
-;                                                                jsr __OVERLAY_START__ + (.right(1, function)*3)
-;                                                        .else
-;                                                                ; Sinon
-;                                                                jsr .right(1, function)
-;                                                        .endif
-;                                                .else
-;                                                        .out "non defini"
-;                                                .endif
-;                                        .endif
-;
+                        .elseif .defined( function )
+                                .out "fonction definie"
+                                jsr function
+
+                        .else
+                                .out "non defini"
                         .endif
+
+;                                .idef function
+;                                        .out "fonction definie"
+;                                        jsr function
+;                                .else
+;                                        .ifdef .right(1, function)
+;                                                .out "defini"
+;
+;                                                ; Si on utilise une table de fonctions
+;                                                .if OVL_OPTIONS::use_fn_table
+;                                                        jsr __OVERLAY_START__ + (.right(1, function)*3)
+;                                                .else
+;                                                        ; Sinon
+;                                                        jsr .right(1, function)
+;                                                .endif
+;                                        .else
+;                                                .out "non defini"
+;                                        .endif
+;                                .endif
+;
+;                        .endif
                 .else
                         .out "Erreur syntaxe: ':', '::' attendu"
                 .endif
@@ -299,24 +304,27 @@
                                 .if .match(.right(1, function), 0)
                                         .out "numérique"
                                         jsr __OVERLAY_START__ + (.right(1, function)*3)
-                                .else
-                                        .ifdef .right(1, function)
-                                                .out "défini"
 
-                                                ; Si on utilise une table de fonctions
-                                                .if OVL_OPTIONS::use_fn_table
-                                                        jsr __OVERLAY_START__ + (.right(1, function)*3)
-                                                .else
-                                                        ; Sinon
-                                                        jsr .right(1, function)
-                                                .endif
+                                .elseif .defined( .right(1, function) )
+                                        .out "défini"
+
+                                        ; Si on utilise une table de fonctions
+                                        .if OVL_OPTIONS::use_fn_table
+                                                jsr __OVERLAY_START__ + (.right(1, function)*3)
+
                                         .else
-                                                .out "non défini"
+                                                ; Sinon
+                                                jsr .right(1, function)
                                         .endif
+
+                                .else
+                                        .out "non défini"
                                 .endif
+
                         .else
                                 .out "Erreur syntaxe: '->' attendu"
                         .endif
+
                 .else
                         .out "Erreur syntaxe: ':', '::', '->' attendu"
                 .endif
